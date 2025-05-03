@@ -1,0 +1,13 @@
+# Ignore everything
+*
+
+# Except these files/directories
+!inference.py
+!Violence/
+!Violence/**
+!Pose/
+!Pose/**
+!requirements.txt
+!OD/
+!OD/**
+!.gitignore

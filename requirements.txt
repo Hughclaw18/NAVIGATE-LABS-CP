@@ -1,0 +1,11 @@
+opencv-python 
+numpy 
+pandas 
+supervision 
+torch 
+torchvision 
+ultralytics 
+plotly 
+colorama 
+python-telegram-bot 
+python-dotenv
