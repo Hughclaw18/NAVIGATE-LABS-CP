@@ -9,3 +9,10 @@ plotly
 colorama 
 python-telegram-bot 
 python-dotenv
+agno
+google-genai
+groq
+sqlalchemy
+fastapi
+uvicorn
+supabase

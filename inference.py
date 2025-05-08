@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from ultralytics import YOLO
+from ultralytics import YOLO, YOLOE
 import os
 import io
 import asyncio
@@ -11,6 +11,8 @@ from datetime import datetime
 import time
 from dotenv import load_dotenv
 from colorama import Fore
+import supervision as sv
+import torch
 
 # Load environment variables
 load_dotenv()
@@ -19,23 +21,45 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_ID")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Initialize models
-violence_model = YOLO("Violence/best.pt")
-object_model = YOLO("OD/yolov8n.pt")
-pose_model = YOLO("Pose/yolov8n-pose.pt")
+# Define device
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"Using device: {device}")
+
+# Initialize models on the selected device
+violence_model = YOLO("Violence/best.pt").to(device)
+pose_model = YOLO("Pose/yolov8n-pose.pt").to(device)
+anomaly_model = YOLOE("yoloe-11m-seg.pt").to(device)
 
 # Initialize counters and tracking variables
 violence_detection_count = 0
 violence_detection_threshold = 1
 pose_anomaly_count = 0
 pose_anomaly_threshold = 1
+anomaly_count = 0
+anomaly_threshold = 1
 last_alert_time = 0
 alert_cooldown = 60  # seconds
 detection_times = []
-frames_sent_count = 0  # Counter for frames sent to Telegram
-send_threshold = 1  # Maximum number of frames to send for a single violence event
-pose_frames_sent_count = 0  # Counter for pose anomaly frames sent to Telegram
-pose_send_threshold = 1  # Maximum number of pose anomaly alerts to send
+frames_sent_count = 0
+send_threshold = 1
+pose_frames_sent_count = 0
+pose_send_threshold = 1
+anomaly_frames_sent_count = 0
+anomaly_send_threshold = 1
+
+# State variables for alerting
+is_violence_active = False
+is_pose_anomaly_active = False
+is_anomaly_active = False
+
+# Classes to detect
+NAMES_ANOMALY = ["Fire", "Smoke", "Knife", "Gun", "Blood"]
+NAMES_OBJECT = ["Person", "Mask", "Vest", "Hat"]
+NAMES_ANOMALY_OBJECT = NAMES_ANOMALY + NAMES_OBJECT
+ANOMALY_INDICES = [0, 1, 2, 3, 4]
+
+# Set classes for anomaly model
+anomaly_model.set_classes(NAMES_ANOMALY_OBJECT, anomaly_model.get_text_pe(NAMES_ANOMALY_OBJECT))
 
 # Constants for pose estimation
 ACTION_ANGLES = {
@@ -47,7 +71,7 @@ ACTION_ANGLES = {
     'lying': {'hip': (160, 180), 'knee': (160, 180), 'vertical': False},
     'crouching': {'hip': (45, 90), 'knee': (30, 70)}
 }
-ANOMALY_ACTIONS = ['falling','lying','crouching']
+ANOMALY_ACTIONS = ['falling', 'lying', 'crouching']
 
 # Function to calculate angle between three points
 def calculate_angle(a, b, c):
@@ -66,12 +90,9 @@ def determine_action(keypoints):
     knee = keypoints[13]
     ankle = keypoints[15]
     shoulder = keypoints[5]
-    hip_angle = calculate_angle(keypoints[5], hip, knee)
+    hip_angle = calculate_angle(shoulder, hip, knee)
     knee_angle = calculate_angle(hip, knee, ankle)
-    
-    # Check if person is horizontal (for lying detection)
     is_vertical = abs(shoulder[1] - ankle[1]) > abs(shoulder[0] - ankle[0])
-    
     for action, angles in ACTION_ANGLES.items():
         if 'vertical' in angles and angles['vertical'] is False and is_vertical:
             continue
@@ -87,21 +108,14 @@ os.makedirs("anomaly_frames", exist_ok=True)
 
 def create_analytics_chart():
     if detection_times:
-        # Convert timestamps to datetime objects
         times = [datetime.fromtimestamp(t) for t in detection_times]
-        
-        # Create cumulative detection counts
         counts = np.arange(1, len(detection_times) + 1)
-        
-        # Create the plot
         plt.figure(figsize=(10, 6))
-        plt.plot(times, counts, marker='o', linestyle='--',color='red')
+        plt.plot(times, counts, marker='o', linestyle='--', color='red')
         plt.xlabel('Time')
         plt.ylabel('Cumulative Detections')
         plt.title('Violence Detection Over Time')
-        plt.gcf().autofmt_xdate()  # Auto-format x-axis dates
-        
-        # Save to buffer
+        plt.gcf().autofmt_xdate()
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         buf.seek(0)
@@ -109,51 +123,70 @@ def create_analytics_chart():
         return buf
     return None
 
-
-# Function to send violence alert
-async def send_violence_alert(timestamp, violence_detection_count,frame):
-    global frames_sent_count
+async def send_violence_alert(timestamp, violence_detection_count, frame):
+    global frames_sent_count, last_alert_time
+    current_time = time.time()
+    if current_time - last_alert_time < alert_cooldown:
+        print("Alert cooldown active, skipping violence alert")
+        return
     try:
         message = f"⚠️ <b>VIOLENCE DETECTED</b> ⚠️\nTime: {timestamp}\nDetection count: {violence_detection_count}"
         await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='HTML')
         print("Sent text message for violence alert")
-        
-        # Save frame and chart for sending
         frame_path = f"violence_frames/violence_{timestamp}.jpg"
         cv2.imwrite(frame_path, frame)
         with open(frame_path, 'rb') as photo:
             await bot.send_photo(chat_id=CHAT_ID, photo=photo)
         print("Sent photo for violence alert")
-        
         chart_buf = create_analytics_chart()
         if chart_buf:
             await bot.send_photo(chat_id=CHAT_ID, photo=chart_buf.getvalue())
             print("Sent chart for violence alert")
-        
         frames_sent_count += 1
+        last_alert_time = current_time
     except Exception as e:
         print(f"Error sending violence alert: {str(e)}")
 
-# Function to send pose anomaly alert
 async def send_pose_alert(action, timestamp, frame):
-    global pose_frames_sent_count
+    global pose_frames_sent_count, last_alert_time
+    current_time = time.time()
+    if current_time - last_alert_time < alert_cooldown:
+        print("Alert cooldown active, skipping pose alert")
+        return
     try:
         message = f"⚠️ <b>POSE ANOMALY DETECTED</b> ⚠️\nAction: {action}\nTime: {timestamp}"
         await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='HTML')
         print("Sent text message for pose alert")
-        
-        # Save and send frame
         frame_path = f"anomaly_frames/anomaly_{timestamp}.jpg"
         cv2.imwrite(frame_path, frame)
         with open(frame_path, 'rb') as photo:
             await bot.send_photo(chat_id=CHAT_ID, photo=photo)
         print("Sent photo for pose alert")
-        
         pose_frames_sent_count += 1
+        last_alert_time = current_time
     except Exception as e:
         print(f"Error sending pose anomaly alert: {str(e)}")
 
-# Telegram bot thread
+async def send_anomaly_alert(timestamp, anomaly_count, frame):
+    global anomaly_frames_sent_count, last_alert_time
+    current_time = time.time()
+    if current_time - last_alert_time < alert_cooldown:
+        print("Alert cooldown active, skipping anomaly alert")
+        return
+    try:
+        message = f"⚠️ <b>ANOMALY DETECTED</b> ⚠️\nTime: {timestamp}\nAnomaly count: {anomaly_count}"
+        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='HTML')
+        print("Sent text message for anomaly alert")
+        frame_path = f"anomaly_frames/anomaly_{timestamp}.jpg"
+        cv2.imwrite(frame_path, frame)
+        with open(frame_path, 'rb') as photo:
+            await bot.send_photo(chat_id=CHAT_ID, photo=photo)
+        print("Sent photo for anomaly alert")
+        anomaly_frames_sent_count += 1
+        last_alert_time = current_time
+    except Exception as e:
+        print(f"Error sending anomaly alert: {str(e)}")
+
 def run_telegram_bot():
     global telegram_loop
     telegram_loop = asyncio.new_event_loop()
@@ -166,29 +199,18 @@ if TOKEN and CHAT_ID:
     bot = Bot(token=TOKEN)
 else:
     bot = None
+    print("No Telegram token or chat ID found. Alerts disabled.")
 
-# Video capture
-cap = cv2.VideoCapture("Pose_videos/lying.mp4")
+cap = cv2.VideoCapture("fire2.mp4")
 cv2.namedWindow("Object, Violence, and Pose Detection", cv2.WINDOW_NORMAL)
 
 while True:
     ret, frame = cap.read()
     if not ret:
         break
-    
-    # Object detection
-    object_results = object_model(frame, conf=0.7)
-    for result in object_results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-            cls_id = int(box.cls[0])
-            label = object_model.names[cls_id]
-            conf = float(box.conf[0])
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(frame, f"{label} {conf:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
     # Violence detection
-    violence_results = violence_model(frame, conf=0.65)
+    violence_results = violence_model(frame, conf=0.65, imgsz=320)
     violence_detected = False
     for result in violence_results:
         for box in result.boxes:
@@ -198,15 +220,19 @@ while True:
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
                 cv2.putText(frame, "Violence", (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     if violence_detected:
-        violence_detection_count += 1
-        detection_times.append(time.time())
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        if violence_detection_count >= violence_detection_threshold and bot and frames_sent_count < send_threshold:
-            asyncio.run_coroutine_threadsafe(send_violence_alert(timestamp, violence_detection_count,frame), telegram_loop)
+        if not is_violence_active:
+            violence_detection_count += 1
+            detection_times.append(time.time())
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if violence_detection_count >= violence_detection_threshold and bot and frames_sent_count < send_threshold:
+                asyncio.run_coroutine_threadsafe(send_violence_alert(timestamp, violence_detection_count, frame), telegram_loop)
+            is_violence_active = True
+    else:
+        is_violence_active = False
 
     # Pose estimation
     try:
-        results = pose_model(frame)
+        results = pose_model(frame, imgsz=320)
         if results and results[0].keypoints is not None:
             annotated_frame = results[0].plot()
             for i, person in enumerate(results[0].keypoints.data):
@@ -219,13 +245,37 @@ while True:
                     text_position = (10, 30 + i*20)
                 cv2.putText(annotated_frame, action, text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 if action in ANOMALY_ACTIONS:
-                    pose_anomaly_count += 1
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    if pose_anomaly_count >= pose_anomaly_threshold and bot and pose_frames_sent_count < pose_send_threshold:
-                        asyncio.run_coroutine_threadsafe(send_pose_alert(action, timestamp, annotated_frame), telegram_loop)
+                    if not is_pose_anomaly_active:
+                        pose_anomaly_count += 1
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        if pose_anomaly_count >= pose_anomaly_threshold and bot and pose_frames_sent_count < pose_send_threshold:
+                            asyncio.run_coroutine_threadsafe(send_pose_alert(action, timestamp, annotated_frame), telegram_loop)
+                        is_pose_anomaly_active = True
+                else:
+                    is_pose_anomaly_active = False
             frame = annotated_frame
     except Exception as e:
         print(f"Pose estimation error: {e}")
+
+    # Anomaly detection
+    results = anomaly_model.predict(frame, imgsz=320, conf=0.1, verbose=False)
+    detections = sv.Detections.from_ultralytics(results[0])
+    frame = sv.BoxAnnotator().annotate(scene=frame, detections=detections)
+    frame = sv.LabelAnnotator().annotate(scene=frame, detections=detections)
+
+    try:
+        detected_classes = results[0].boxes.cls.cpu().numpy().astype(int).tolist()
+        if any(cls in ANOMALY_INDICES for cls in detected_classes):
+            if not is_anomaly_active:
+                anomaly_count += 1
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                if anomaly_count >= anomaly_threshold and bot and anomaly_frames_sent_count < anomaly_send_threshold:
+                    asyncio.run_coroutine_threadsafe(send_anomaly_alert(timestamp, anomaly_count, frame), telegram_loop)
+                is_anomaly_active = True
+        else:
+            is_anomaly_active = False
+    except Exception as e:
+        print(f"Anomaly detection error: {e}")
 
     # Add detection counter to the frame
     cv2.putText(frame, f"Violence count: {violence_detection_count}/{violence_detection_threshold}", 
