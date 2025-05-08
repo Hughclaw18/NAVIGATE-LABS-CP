@@ -45,40 +45,47 @@ Welcome to the IndustriWatch! We've built a powerful AI-driven platform that wat
 ## 🏗️ System Architecture
 
 ```mermaid
-graph TB
-    subgraph "Frontend"
-        UI[React UI] --> VideoPlayer
-        VideoPlayer --> StreamConnection
-        UI --> Analytics
-        UI --> Settings
-        Auth{Authentication}
-    end
+flowchart TD
+    A[User Logs In] --> B{Select Video Source}
+    B -->|RTSP Camera| C[RTSPtoWeb Service]
+    B -->|Video File| D[Direct Upload]
+    B -->|Webcam| E[Browser Capture]
     
-    subgraph "Backend"
-        API[FastAPI Server] --> ViolenceModel[Violence Detection]
-        API --> PoseModel[Pose Estimation]
-        API --> AnomalyModel[Anomaly Detection]
-        API --> Agent[REVA AI Assistant]
-        API --> DB[(Supabase DB)]
-    end
+    C --> F[FastAPI Backend]
+    D --> F
+    E --> F
     
-    subgraph "Video Sources"
-        RTSP[RTSP Streams] --> RTSPtoWeb
-        RTSPtoWeb --> API
-        Files[Video Files] --> API
-        Camera[Webcam] --> API
-    end
+    F --> G[Start Inference]
+    G --> H[Frame Processing Loop]
     
-    subgraph "Notifications"
-        API --> TelegramBot
-        TelegramBot --> Alerts
-        TelegramBot --> Commands
-        TelegramBot --> Chat
-    end
+    H --> I[Violence Detection]
+    H --> J[Pose Estimation]
+    H --> K[Anomaly Detection]
     
-    Auth --> API
-    StreamConnection --> API
-    API --> UI
+    I -->|Violence Detected| L[Update Detection Counter]
+    J -->|Unusual Pose| L
+    K -->|Anomaly Found| L
+    
+    L --> M{Threshold Reached?}
+    M -->|No| H
+    M -->|Yes| N[Create Alert]
+    
+    N --> O[Generate Annotated Image]
+    N --> P[Create Analytics Chart]
+    
+    O --> Q[Send Telegram Alert]
+    P --> Q
+    
+    Q --> R[Store Event Data]
+    R --> S[Update Dashboard]
+    
+    S --> T[User Views Results]
+    T --> U[User Queries AI Assistant]
+    U --> V[REVA Assistant Provides Context]
+    
+    T --> W{Continue Monitoring?}
+    W -->|Yes| H
+    W -->|No| X[Stop Inference]
 ```
 
 ### 🔄 Detailed System Data Flow
