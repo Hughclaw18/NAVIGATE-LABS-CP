@@ -266,11 +266,11 @@ def initialize_telegram_bot(custom_token=None, custom_chat_id=None):
         # Store the effective values for use in alert functions
         TOKEN = effective_token
         CHAT_ID = effective_chat_id
+        
+        try:
+            print("Initializing Telegram bot...")
+            bot = Bot(token=effective_token)
             
-            try:
-                print("Initializing Telegram bot...")
-                bot = Bot(token=effective_token)
-                
             # Test the connection to validate token
             async def test_bot():
                 try:
@@ -289,13 +289,13 @@ def initialize_telegram_bot(custom_token=None, custom_chat_id=None):
                     print(f"Error validating bot token: {str(e)}")
                     return False
             
-                # Create alert event loop
-                alert_loop = asyncio.new_event_loop()
-                
-                # Run alert loop in a separate thread
-                alert_thread = threading.Thread(target=run_alert_loop, daemon=True)
-                alert_thread.start()
-                
+            # Create alert event loop
+            alert_loop = asyncio.new_event_loop()
+            
+            # Run alert loop in a separate thread
+            alert_thread = threading.Thread(target=run_alert_loop, daemon=True)
+            alert_thread.start()
+            
             # Test the bot connection
             test_result = asyncio.run_coroutine_threadsafe(test_bot(), alert_loop).result(timeout=10)
             if not test_result:
@@ -304,16 +304,16 @@ def initialize_telegram_bot(custom_token=None, custom_chat_id=None):
                 bot_initialized = False
                 return
             
-                # Start the Telegram bot in a separate thread
-                telegram_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-                telegram_thread.start()
-                
-                bot_initialized = True
-                print("Telegram bot initialized successfully")
-            except Exception as e:
-                print(f"Error initializing Telegram bot: {e}")
-                bot = None
-                bot_initialized = False
+            # Start the Telegram bot in a separate thread
+            telegram_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+            telegram_thread.start()
+            
+            bot_initialized = True
+            print("Telegram bot initialized successfully")
+        except Exception as e:
+            print(f"Error initializing Telegram bot: {e}")
+            bot = None
+            bot_initialized = False
 
 def run_alert_loop():
     """Run the alert event loop for sending Telegram notifications"""
@@ -394,8 +394,8 @@ def create_analytics_chart(detection_type):
     """Create a matplotlib chart of detections over time for different types"""
     try:
         if detection_type == 'violence' and detection_times:
-        times = [datetime.fromtimestamp(t) for t in detection_times]
-        counts = np.arange(1, len(detection_times) + 1)
+            times = [datetime.fromtimestamp(t) for t in detection_times]
+            counts = np.arange(1, len(detection_times) + 1)
             title = 'Violence Detection Over Time'
         elif detection_type == 'pose' and pose_detection_times:
             times = [datetime.fromtimestamp(t) for t in pose_detection_times]
@@ -450,8 +450,8 @@ async def send_violence_alert(timestamp, violence_detection_count, frame):
         chart_buf = create_analytics_chart('violence')
         if chart_buf:
             try:
-            await bot.send_photo(chat_id=CHAT_ID, photo=chart_buf.getvalue())
-            print("Sent chart for violence alert")
+                await bot.send_photo(chat_id=CHAT_ID, photo=chart_buf.getvalue())
+                print("Sent chart for violence alert")
             except Exception as e:
                 print(f"Error sending chart: {str(e)}")
             

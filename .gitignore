@@ -1,18 +1,54 @@
 # Ignore everything
 *
 
-# Except these files/directories
+# Whitelist specific files/directories
+!.gitignore
+!api.py
 !inference.py
+!inference2.py
+!inference3.py
+!yoloe.py
+!requirements.txt
+!supabase_config.py
+!supabase_setup.sql
+
+# Whitelist specific directories and their contents
 !Violence/
 !Violence/**
 !Pose/
 !Pose/**
-!requirements.txt
 !OD/
 !OD/**
-!.gitignore
-!api.py 
+!frontend/
+!frontend/**
 
+# Exclude node_modules everywhere
+node_modules/
+**/node_modules/
 
+# Exclude large model files
+*.pt
+*.ts
 
+# Exclude image files (if not needed)
+*.jpg
+*.jpeg
+*.png
 
+# Exclude video files
+*.mp4
+
+# Exclude database files
+*.db
+
+# Exclude executable files
+*.exe
+
+# Exclude common files
+*.log
+.DS_Store
+.env
+.env.*
+__pycache__/
+**/__pycache__/
+.venv/
