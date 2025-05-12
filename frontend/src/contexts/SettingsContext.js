@@ -25,74 +25,130 @@ export const SettingsProvider = ({ children }) => {
 
   const [settings, setSettings] = useState(defaultSettings);
   const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  // Function to refresh settings from database
+  const refreshSettings = async () => {
+    if (user && user.email) {
+      setLoading(true);
+      try {
+        await loadSettings();
+      } finally {
+        setLoading(false);
+        setLastRefresh(Date.now());
+      }
+    }
+  };
+
+  // Function to load settings from Supabase
+  const loadSettings = async () => {
+    if (!user || !user.email) {
+      console.log('Cannot load settings - no authenticated user');
+      return;
+    }
+
+    try {
+      console.log(`Loading settings for user email: ${user.email}, id: ${user.id}`);
+
+      // Try to get user settings from Supabase
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_email', user.email)
+        .single();
+      
+      if (error) {
+        if (error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+          console.error('Error fetching settings:', error);
+          throw error;
+        } else {
+          console.log('No settings found for user, creating new entry');
+          await createDefaultSettings();
+          return;
+        }
+      }
+      
+      if (data) {
+        console.log('Settings found in database:', {
+          theme: data.theme,
+          telegram_enabled: data.telegram_enabled,
+          telegram_token_present: data.telegram_token ? 'Yes' : 'No',
+          telegram_chat_id_present: data.telegram_chat_id ? 'Yes' : 'No',
+          stream_mode: data.stream_mode
+        });
+        
+        // User settings found in database
+        const loadedSettings = {
+          theme: data.theme || defaultSettings.theme,
+          telegramEnabled: data.telegram_enabled !== null ? data.telegram_enabled : defaultSettings.telegramEnabled,
+          telegramToken: data.telegram_token || '',
+          telegramChatId: data.telegram_chat_id || '',
+          streamMode: data.stream_mode || defaultSettings.streamMode,
+        };
+        
+        setSettings(loadedSettings);
+        console.log('Settings loaded successfully');
+      } else {
+        await createDefaultSettings();
+      }
+    } catch (err) {
+      console.error('Error in settings load:', err);
+    }
+  };
+
+  // Function to create default settings in database
+  const createDefaultSettings = async () => {
+    if (!user || !user.email) {
+      console.log('Cannot create settings - no authenticated user');
+      return;
+    }
+
+    try {
+      console.log('Creating default settings in database');
+      
+      const userInsertData = {
+        user_email: user.email,
+        user_name: user.user_metadata?.username || '',
+        theme: defaultSettings.theme,
+        telegram_enabled: defaultSettings.telegramEnabled,
+        telegram_token: defaultSettings.telegramToken,
+        telegram_chat_id: defaultSettings.telegramChatId,
+        stream_mode: defaultSettings.streamMode,
+      };
+
+      // Try to add user_id if available
+      if (user.id) {
+        userInsertData.user_id = user.id;
+      }
+      
+      const { error: insertError } = await supabase
+        .from('user_settings')
+        .insert(userInsertData);
+      
+      if (insertError) {
+        console.error('Error creating settings:', insertError);
+        throw insertError;
+      } else {
+        console.log('Default settings created in database');
+        setSettings(defaultSettings);
+      }
+    } catch (err) {
+      console.error('Error creating default settings:', err);
+      throw err;
+    }
+  };
 
   // Load settings from Supabase when the user changes
   useEffect(() => {
-    const loadSettings = async () => {
+    const fetchSettings = async () => {
       setLoading(true);
       
       if (user && user.email) {
         try {
-          console.log(`Loading settings for user: ${user.email}`);
-
-          // Try to get user settings from Supabase
-          const { data, error } = await supabase
-            .from('user_settings')
-            .select('*')
-            .eq('user_email', user.email)
-            .single();
-          
-          if (error && error.code !== 'PGRST116') {
-            console.error('Error fetching settings:', error);
-          }
-          
-          if (data) {
-            console.log('Settings found in database:', {
-              theme: data.theme,
-              telegram_enabled: data.telegram_enabled,
-              telegram_token_present: data.telegram_token ? 'Yes' : 'No',
-              telegram_chat_id_present: data.telegram_chat_id ? 'Yes' : 'No',
-              stream_mode: data.stream_mode
-            });
-            
-            // User settings found in database
-            const loadedSettings = {
-              theme: data.theme || defaultSettings.theme,
-              telegramEnabled: data.telegram_enabled !== null ? data.telegram_enabled : defaultSettings.telegramEnabled,
-              telegramToken: data.telegram_token || defaultSettings.telegramToken,
-              telegramChatId: data.telegram_chat_id || defaultSettings.telegramChatId,
-              streamMode: data.stream_mode || defaultSettings.streamMode,
-            };
-            
-            setSettings(loadedSettings);
-            console.log('Settings loaded successfully');
-          } else {
-            console.log('No settings found, creating new entry with defaults');
-            
-            // No settings found, create new entry with default settings
-            const { error: insertError } = await supabase
-              .from('user_settings')
-              .insert({
-                user_email: user.email,
-                user_name: user.user_metadata?.username || '',
-                theme: defaultSettings.theme,
-                telegram_enabled: defaultSettings.telegramEnabled,
-                telegram_token: defaultSettings.telegramToken,
-                telegram_chat_id: defaultSettings.telegramChatId,
-                stream_mode: defaultSettings.streamMode,
-              });
-            
-            if (insertError) {
-              console.error('Error creating settings:', insertError);
-            } else {
-              console.log('Default settings created in database');
-            }
-            
-            // Use default settings
-            setSettings(defaultSettings);
-          }
+          await loadSettings();
         } catch (err) {
-          console.error('Error in settings load:', err);
+          console.error('Error loading settings:', err);
+          // Fall back to defaults if loading fails
           setSettings(defaultSettings);
         }
       } else {
@@ -108,7 +164,7 @@ export const SettingsProvider = ({ children }) => {
       setLoading(false);
     };
 
-    loadSettings();
+    fetchSettings();
   }, [user]);
 
   // Save theme to localStorage for non-authenticated users
@@ -131,21 +187,23 @@ export const SettingsProvider = ({ children }) => {
         
         if (error) {
           console.error('Error updating theme:', error);
+          throw error;
         }
       } catch (err) {
         console.error('Error saving theme:', err);
+        throw err;
       }
     }
   };
 
   // Update telegram settings
-  const setTelegramSettings = async (telegramEnabled, telegramToken = settings.telegramToken, telegramChatId = settings.telegramChatId) => {
+  const setTelegramSettings = async (telegramEnabled, telegramToken = '', telegramChatId = '') => {
     // First update local state immediately for UI responsiveness
     setSettings(prev => ({
       ...prev,
       telegramEnabled,
-      telegramToken,
-      telegramChatId,
+      telegramToken: telegramToken || prev.telegramToken,
+      telegramChatId: telegramChatId || prev.telegramChatId,
     }));
     
     // Save telegram settings to Supabase if user is logged in
@@ -153,8 +211,8 @@ export const SettingsProvider = ({ children }) => {
       try {
         console.log('Saving Telegram settings to Supabase:', { 
           enabled: telegramEnabled, 
-          token: telegramToken ? `${telegramToken.substring(0, 5)}...` : 'empty', 
-          chatId: telegramChatId || 'empty'
+          token: telegramToken ? `${telegramToken.substring(0, 5)}...` : '[unchanged]', 
+          chatId: telegramChatId || '[unchanged]'
         });
         
         // Format data for database columns
@@ -162,12 +220,12 @@ export const SettingsProvider = ({ children }) => {
           telegram_enabled: telegramEnabled,
         };
         
-        // Only update token and chatId if they're not empty
-        if (telegramToken) {
+        // Only update token and chatId if provided
+        if (telegramToken !== undefined && telegramToken !== null) {
           updateData.telegram_token = telegramToken;
         }
         
-        if (telegramChatId) {
+        if (telegramChatId !== undefined && telegramChatId !== null) {
           updateData.telegram_chat_id = telegramChatId;
         }
         
@@ -178,12 +236,19 @@ export const SettingsProvider = ({ children }) => {
         
         if (error) {
           console.error('Error updating telegram settings:', error);
+          throw error;
         } else {
           console.log('Telegram settings saved successfully');
+          
+          // After saving, reload settings to ensure we have latest data
+          await loadSettings();
         }
       } catch (err) {
         console.error('Error saving telegram settings:', err);
+        throw err;
       }
+    } else {
+      console.warn('Cannot save Telegram settings - no authenticated user');
     }
   };
 
@@ -201,9 +266,11 @@ export const SettingsProvider = ({ children }) => {
         
         if (error) {
           console.error('Error updating stream mode:', error);
+          throw error;
         }
       } catch (err) {
         console.error('Error saving stream mode:', err);
+        throw err;
       }
     }
   };
@@ -214,7 +281,9 @@ export const SettingsProvider = ({ children }) => {
     setTheme,
     setTelegramSettings,
     setStreamMode,
-    loading
+    loading,
+    refreshSettings,
+    lastRefresh
   };
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

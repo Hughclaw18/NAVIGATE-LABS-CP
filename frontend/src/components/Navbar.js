@@ -21,7 +21,7 @@ const Navbar = () => {
     <nav className={`navbar ${settings.theme === 'dark' ? 'navbar-dark' : 'navbar-light'}`}>
       <div className="navbar-brand">
         <Link to="/" className="navbar-logo">
-          Surveillance System
+          IndustriWatch
         </Link>
       </div>
       

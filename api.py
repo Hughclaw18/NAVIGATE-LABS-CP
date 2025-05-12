@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any, Union
 import numpy as np
 from supabase import create_client
 from os import environ
+from notion_tools import NotionTools
 
 # Set matplotlib backend before importing
 import matplotlib
@@ -35,6 +36,13 @@ from agno.models.google import Gemini
 from agno.storage.sqlite import SqliteStorage
 from agno.tools import Toolkit
 
+
+load_dotenv(find_dotenv(filename=".env"))
+
+# Save the notion Token and DB ID 
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+DATABASE_ID = os.getenv("DATABASE_ID")
+
 # Initialize FastAPI app
 app = FastAPI(title="Surveillance API")
 
@@ -47,8 +55,7 @@ app.add_middleware(
     allow_headers=["*"], 
 )
 
-# Load environment variables
-load_dotenv(find_dotenv(filename=".env"))
+
 
 # Global variables
 inference_running = False
@@ -219,11 +226,14 @@ def initialize_agent():
             name="Surveillance Agent",
             role="You are an Surveillance Assistant named REVA who provides information about the current state of the surveillance system",
             model=Gemini(id="gemini-2.5-flash-preview-04-17", api_key=GOOGLE_API_KEY),
-            tools=[SurveillanceState()],
+            tools=[SurveillanceState(), NotionTools(NOTION_TOKEN, DATABASE_ID)],
             instructions=["You will be given a question on the surviellance system",
                         "You should be using the SurveillanceState Toolkit to answer the question",
                         "Provide a neat and concise answer",
                         "You should also be friendly and more engaging, offering a very good assistance to the user",
+                        "Addtionally if the user tells to save the analytics or create a report on it , then you should use the NotionTools to save the analytics(got from the SurveillanceState Toolkit) or create a report on it",
+                        "Use NotionTools for all CRUD operations: create_page to add new pages, get_pages to list pages, update_page to modify page properties, delete_page to archive pages, get_blocks to fetch page blocks, append_block to add blocks, update_block to modify block content, and delete_block to archive blocks.",
+                        "The DB ID and API key for Notion are already provided to you",
                         f"User name is {user_id if user_id else 'Guest'}",
                         ],
             user_id=user_id if user_id else "Guest",

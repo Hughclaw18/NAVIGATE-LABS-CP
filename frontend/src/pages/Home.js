@@ -8,7 +8,7 @@ const Home = () => {
   return (
     <div className="home-container">
       <div className="hero-section">
-        <h1>Real-time Surveillance Monitoring System</h1>
+        <h1>IndustriWatch - Real-time Surveillance Monitoring System</h1>
         <p className="hero-description">
           Connect to your RTSP cameras and detect anomalies using advanced AI analytics
         </p>
