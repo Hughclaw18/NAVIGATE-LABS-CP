@@ -11,6 +11,7 @@
 !requirements.txt
 !supabase_config.py
 !supabase_setup.sql
+!notion_tools.py
 
 # Whitelist specific directories and their contents
 !Violence/
