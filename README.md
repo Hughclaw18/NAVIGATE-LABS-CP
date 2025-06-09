@@ -9,7 +9,7 @@ Welcome to the IndustriWatch! We've built a powerful AI-driven platform that wat
 
 ## Demo Video
 
-[📹 Watch the demo video](https://drive.google.com/file/d/1Tcidn5kNRw_sujdU2pNR7pZFDchb_Vjh/view?usp=sharing)
+(https://drive.google.com/file/d/1Tcidn5kNRw_sujdU2pNR7pZFDchb_Vjh/view?usp=sharing)
 
 
 ## 📋 Table of Contents
