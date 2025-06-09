@@ -7,6 +7,11 @@
 
 Welcome to the IndustriWatch! We've built a powerful AI-driven platform that watches your video feeds 24/7 to detect unusual behaviors, security threats, and emergency situations. Whether you're monitoring a retail space, warehouse, or public area, our system helps you stay one step ahead with instant alerts and comprehensive analytics.
 
+## Demo Video
+
+[📹 Watch the demo video](https://drive.google.com/file/d/1Tcidn5kNRw_sujdU2pNR7pZFDchb_Vjh/view?usp=sharing)
+
+
 ## 📋 Table of Contents
 
 - [✨ Features](#features)
