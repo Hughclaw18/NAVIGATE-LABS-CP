@@ -12,6 +12,11 @@
 !supabase_config.py
 !supabase_setup.sql
 !notion_tools.py
+!my-app/
+!my-app/**
+!my-app/src/
+!my-app/src/**
+
 
 # Whitelist specific directories and their contents
 !Violence/
@@ -20,8 +25,7 @@
 !Pose/**
 !OD/
 !OD/**
-!frontend/
-!frontend/**
+
 
 # Exclude node_modules everywhere
 node_modules/
@@ -53,3 +57,4 @@ node_modules/
 __pycache__/
 **/__pycache__/
 .venv/
+.venv/** 
