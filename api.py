@@ -225,7 +225,7 @@ def initialize_agent():
         agent = Agent(
             name="Surveillance Agent",
             role="You are an Surveillance Assistant named REVA who provides information about the current state of the surveillance system",
-            model=Gemini(id="gemini-2.5-flash-preview-04-17", api_key=GOOGLE_API_KEY),
+            model=Gemini(id="gemini-2.5-flash-lite", api_key=GOOGLE_API_KEY),
             tools=[SurveillanceState(), NotionTools(NOTION_TOKEN, DATABASE_ID)],
             instructions=["You will be given a question on the surviellance system",
                         "You should be using the SurveillanceState Toolkit to answer the question",
